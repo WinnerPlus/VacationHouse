@@ -1,0 +1,5 @@
+# Copias de seguridad que Blender crea al guardar
+*.blend1
+*.blend2
+# Temporales de la exportación web
+*.tmp.glb
