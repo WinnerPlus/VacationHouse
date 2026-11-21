@@ -1,5 +1,7 @@
 # Copias de seguridad que Blender crea al guardar
 *.blend1
 *.blend2
+# Configuración local de Claude Code (servidor de prueba)
+.claude/
 # Temporales de la exportación web
 *.tmp.glb

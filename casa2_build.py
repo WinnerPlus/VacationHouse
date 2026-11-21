@@ -13,14 +13,19 @@ from mathutils import Vector
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 OUT_DIR = argv[0] if argv else os.path.dirname(os.path.abspath(__file__))
 VAR = (argv[1] if len(argv) > 1 else "A").upper()
-NAME = {"A": "Casa A - con despensa", "B": "Casa B - con terraza", "C": "Casa C - atico replanteado", "D": "Casa D - diseño final"}[VAR]
+NAME = {"A": "Casa A - con despensa", "B": "Casa B - con terraza", "C": "Casa C - atico replanteado", "D": "Casa D - diseño final",
+        "E": "Casa D - sin terraza"}[VAR]
+# E = casa D con la planta primera V.1 (dormitorio con cristalera a la calle y baño en suite, sin galería)
 # C = plantas baja y primera de la B + bajocubierta replanteada (2 dormitorios + baño) y escalera con altura libre.
 # D = diseño final (planos "PLANOS casa.pdf"): base B con comedor movido, baño de P1 de un seno, galería y
 #     bajocubierta del padre con casetón delantero y trasero; se mantienen los arreglos de altura libre.
 # A partir de aquí VAR solo decide las plantas inferiores.
 NEW_ATTIC = VAR == "C"
-HOUSE_D = VAR == "D"
-if VAR in ("C", "D"): VAR = "B"
+HOUSE_D = VAR in ("D", "E")
+ASYM = VAR == "E"                           # tejado asimétrico (cumbrera retrasada) solo en la casa sin terraza
+P1V = "A" if VAR == "E" else None          # planta primera: "A" (sin terraza) o "B" (galería)
+if VAR in ("C", "D", "E"): VAR = "B"
+P1V = P1V or VAR
 BLEND = os.path.join(OUT_DIR, NAME + ".blend")
 
 bpy.ops.wm.read_factory_settings(use_empty=True)
@@ -29,7 +34,13 @@ scene.unit_settings.system = 'METRIC'
 
 # ---------------------------------------------------------------- cotas
 RIDGE_X, SLOPE, Z_RIDGE, ROOF_T = 3.51, 0.45, 8.94, 0.33
-def z_top(x): return Z_RIDGE - SLOPE * abs(x - RIDGE_X)
+SLOPE_F = SLOPE_R = SLOPE                   # pendiente del faldón delantero (calle) y trasero
+EAVE_F = -0.80                              # vuelo del alero a la calle
+if ASYM:
+    # Según el croquis sobre la sección: la fachada sube hasta ~7,97, faldón largo y tendido (~8,5°) hasta la
+    # cumbrera en x≈5,74 a ~8,81, y faldón corto y empinado hasta ~7,0 sobre el muro del fondo.
+    RIDGE_X, Z_RIDGE, SLOPE_F, SLOPE_R, EAVE_F = 5.74, 8.81, 0.15, 1.03, -0.40
+def z_top(x): return Z_RIDGE - (SLOPE_F * (RIDGE_X - x) if x < RIDGE_X else SLOPE_R * (x - RIDGE_X))
 def z_under(x): return z_top(x) - ROOF_T
 
 LV = {"PB": 0.0, "P1": 2.80, "BC": 5.60}
@@ -201,6 +212,8 @@ M = {
     'piedra_muro': stone_mat('Muro de mampostería', 3.2, '#6E665C', '#B3A794', '#3F3B36'),
     'mueble_blanco': basic('Mueble blanco', '#F4F2EE', 0.4),
     'frente': basic('Frentes de mueble', '#E8E4DC', 0.35),
+    'cocina': basic('Muebles de cocina azul marino', '#1C2B45', 0.45),
+    'cocina_frente': basic('Frentes de cocina azul marino', '#24375A', 0.35),
     'madera_mueble': basic('Madera mueble', '#9C7552', 0.5),
     'listones': basic('Listones separador', '#A87C52', 0.5),
     'encimera': basic('Encimera', '#3A3A3C', 0.3),
@@ -526,9 +539,16 @@ def person(mb, x, y, z, ang, sex):
     mb.merge(p, lambda px, py, pz: (x + px * ca - py * sa, y + px * sa + py * ca, z + pz))
 
 def personas():
-    """Dos personas por estancia (sin despensa, aseos ni baños)."""
+    """Dos personas por estancia (sin despensa, aseos ni baños). En las casas D, una por planta."""
     pb, p1, bc = MB(), MB(), MB()
     z1, z2 = LV["P1"], LV["BC"]
+    if HOUSE_D:
+        person(pb, 1.45, 2.50, 0.0, 25, 'h')                                     # salón
+        if P1V == "A": person(p1, 1.10, 2.05, z1, 10, 'm')                       # dormitorio principal
+        else: person(p1, 1.85, 2.58, z1, 0, 'm')
+        person(bc, 2.30, 1.50, z2, 180, 'h')                                     # dormitorio delantero
+        pb.build("PB Personas de referencia", C_PB); p1.build("P1 Personas de referencia", C_P1); bc.build("BC Personas de referencia", C_BC)
+        return
     # salón
     person(pb, 1.45, 2.50, 0.0, 25, 'h'); person(pb, 2.30, 2.88, 0.0, 205, 'm')
     # cocina-comedor
@@ -537,7 +557,7 @@ def personas():
     else:
         person(pb, 6.05, 1.38, 0.0, -90, 'm'); person(pb, 6.15, 2.35, 0.0, 250, 'h')
     # dormitorio principal (+ galería en B)
-    if VAR == "A":
+    if P1V == "A":
         person(p1, 1.10, 2.05, z1, 10, 'm'); person(p1, 3.75, 1.98, z1, 175, 'h')
     else:
         person(p1, 1.85, 2.58, z1, 0, 'm'); person(p1, 3.45, 2.62, z1, 180, 'h')
@@ -565,7 +585,7 @@ def counter(mb, x0, x1, y0, y1, front, z=0.0):
     elif front == '-y': iy0 += 0.03
     elif front == '+x': ix1 -= 0.03
     else: ix0 += 0.03
-    mb.box(ix0, ix1, iy0, iy1, z + 0.10, z + 0.87, M['mueble_blanco'])
+    mb.box(ix0, ix1, iy0, iy1, z + 0.10, z + 0.87, M['cocina'])
     pl = {'+y': (ix0, ix1, iy0, iy1 - 0.06), '-y': (ix0, ix1, iy0 + 0.06, iy1), '+x': (ix0, ix1 - 0.06, iy0, iy1), '-x': (ix0 + 0.06, ix1, iy0, iy1)}[front]
     mb.box(*pl, z, z + 0.10, M['negro'])
     if front in ('+y', '-y'):
@@ -573,14 +593,36 @@ def counter(mb, x0, x1, y0, y1, front, z=0.0):
         x = ix0
         while x < ix1 - 0.05:
             xb = min(x + 0.60, ix1)
-            mb.box(x + 0.004, xb - 0.004, min(yf, yf + s * 0.015), max(yf, yf + s * 0.015), z + 0.12, z + 0.85, M['frente'])
+            mb.box(x + 0.004, xb - 0.004, min(yf, yf + s * 0.015), max(yf, yf + s * 0.015), z + 0.12, z + 0.85, M['cocina_frente'])
+            xc = (x + xb) / 2
+            mb.box(xc - 0.09, xc + 0.09, min(yf, yf + s * 0.035), max(yf, yf + s * 0.035), z + 0.78, z + 0.80, M['metal'])
             x = xb
     else:
         xfr = ix1 if front == '+x' else ix0; s = 1 if front == '+x' else -1
         y = iy0
         while y < iy1 - 0.05:
             yb = min(y + 0.60, iy1)
-            mb.box(min(xfr, xfr + s * 0.015), max(xfr, xfr + s * 0.015), y + 0.004, yb - 0.004, z + 0.12, z + 0.85, M['frente'])
+            mb.box(min(xfr, xfr + s * 0.015), max(xfr, xfr + s * 0.015), y + 0.004, yb - 0.004, z + 0.12, z + 0.85, M['cocina_frente'])
+            yc = (y + yb) / 2
+            mb.box(min(xfr, xfr + s * 0.035), max(xfr, xfr + s * 0.035), yc - 0.09, yc + 0.09, z + 0.78, z + 0.80, M['metal'])
+            y = yb
+
+def wall_cab(mb, x0, x1, y0, y1, front, za=1.50, zb=2.20):
+    """Armario alto de cocina, azul marino, con frentes de 60 cm."""
+    mb.box(x0, x1, y0, y1, za, zb, M['cocina'])
+    if front in ('+y', '-y'):
+        yf = y1 if front == '+y' else y0; s = 1 if front == '+y' else -1
+        x = x0
+        while x < x1 - 0.05:
+            xb = min(x + 0.60, x1)
+            mb.box(x + 0.004, xb - 0.004, min(yf, yf + s * 0.015), max(yf, yf + s * 0.015), za + 0.01, zb - 0.01, M['cocina_frente'])
+            x = xb
+    else:
+        xfr = x1 if front == '+x' else x0; s = 1 if front == '+x' else -1
+        y = y0
+        while y < y1 - 0.05:
+            yb = min(y + 0.60, y1)
+            mb.box(min(xfr, xfr + s * 0.015), max(xfr, xfr + s * 0.015), y + 0.004, yb - 0.004, za + 0.01, zb - 0.01, M['cocina_frente'])
             y = yb
 
 def sink(mb, x0, x1, y0, y1, z=0.0):
@@ -596,6 +638,7 @@ FACADE_OPEN = {
     "P1B": [(0.60, 3.60, 2.80, 5.30)],
 }
 S_D0, S_D1 = s_of_y(DY0), s_of_y(DY1)
+BC_W0, BC_W1, BC_WZ = s_of_y(1.30), s_of_y(3.55), (LV["BC"] + 0.45, 7.45)   # ventanal de bajocubierta (tejado asimétrico)
 
 def shell(level, coll):
     z0 = LV[level]
@@ -603,9 +646,12 @@ def shell(level, coll):
     mb = MB()
     fr = ext_rule(M['piedra_fachada'], M['pared_int'], (-FN.x, -FN.y))
     if level == "BC":
-        wall(mb, FA, FD, 0.0, FT, z0, ztop, [(S_D0, S_D1, z0, None)], fr)
+        if ASYM:   # fachada alta con ventanal en vez de casetón
+            wall(mb, FA, FD, 0.0, FT, z0, ztop, [(BC_W0, BC_W1, BC_WZ[0], BC_WZ[1])], fr)
+        else:
+            wall(mb, FA, FD, 0.0, FT, z0, ztop, [(S_D0, S_D1, z0, None)], fr)
     else:
-        key = "PB" if level == "PB" else "P1" + VAR
+        key = "PB" if level == "PB" else "P1" + P1V
         wall(mb, FA, FD, 0.0, FT, z0, ztop, FACADE_OPEN[key], fr)
     mb.prism([(0.10, 0.0), (X_OUT, 0.0), (X_OUT, Y_S_IN), (0.10, Y_S_IN)], z0, ztop, ext_rule(M['enfoscado'], M['pared_int'], (0, -1)))
     mb.prism([(0.45, Y_N_IN), (X_OUT, Y_N_IN), (X_OUT, Y_N_OUT), (0.45, Y_N_OUT)], z0, ztop, ext_rule(M['enfoscado'], M['pared_int'], (0, 1)))
@@ -666,7 +712,7 @@ def facade_carpentry():
     # Planta primera
     f, g = MB(), MB()
     z = LV["P1"]
-    if VAR == "A":
+    if P1V == "A":
         glazing(f, g, 1.75, 3.60, z, z + CLEAR, panes=2)
         glass_rail(f, g, 1.75, 3.60, z)
         glazing(f, g, 0.60, 1.30, z + 1.05, z + 2.15, panes=1, glass=M['vidrio_mate'], sill=True)
@@ -735,7 +781,7 @@ def planta_baja():
         counter(k, 5.75, 6.33, Y_S_IN, 2.00, '-x'); sink(k, 5.85, 6.25, 1.10, 1.70)
         k.box(6.24, 6.28, 1.38, 1.42, 0.91, 1.20, M['metal'])
         counter(k, 3.57, 5.75, Y_S_IN, 0.87, '+y'); hob(k, 3.95, 4.55, 0.33, 0.80)
-        k.box(3.57, 5.70, Y_S_IN, 0.60, 1.50, 2.20, M['mueble_blanco'])
+        wall_cab(k, 3.57, 5.70, Y_S_IN, 0.60, '+y')
         k.box(3.95, 4.55, Y_S_IN, 0.75, 1.55, 1.70, M['metal'])
         sep_x = 3.48
         # comedor 6 plazas
@@ -753,11 +799,11 @@ def planta_baja():
         a = MB(); toilet(a, Y_N_IN, 6.95, z, '-y'); basin(a, X_IN, 3.12, z, '-x', 0.5); a.build("PB Aseo", C_PB)
         bath_floor("PB", [(6.43, X_IN, 2.70, Y_N_IN)], C_PB, "PB Suelo aseo")
         counter(k, 7.00, X_IN, Y_S_IN, 2.60, '-x'); hob(k, 7.08, 7.52, 1.10, 1.70)
-        k.box(7.25, X_IN, 0.87, 2.60, 1.50, 2.20, M['mueble_blanco'])
+        wall_cab(k, 7.25, X_IN, 0.87, 2.60, '-x')
         k.box(7.15, X_IN, 1.10, 1.70, 1.55, 1.70, M['metal'])
         counter(k, 3.82, 7.00, Y_S_IN, 0.87, '+y'); sink(k, 5.75, 6.45, 0.38, 0.75)
         k.box(6.08, 6.12, 0.27, 0.33, 0.91, 1.20, M['metal'])
-        k.box(3.82, 7.00, Y_S_IN, 0.60, 1.50, 2.20, M['mueble_blanco'])
+        wall_cab(k, 3.82, 7.00, Y_S_IN, 0.60, '+y')
         sep_x = 3.70
         tx0, tx1, ty0, ty1 = (4.83, 5.62, 1.87, 2.88) if HOUSE_D else (4.32, 5.10, 1.77, 2.77)   # en D el comedor va más al fondo
         k.box(tx0, tx1, ty0, ty1, 0.72, 0.76, M['madera_mueble'])
@@ -817,7 +863,7 @@ def planta_primera():
     stair_p1(C_P1)
     t, d, f, b = MB(), MB(), MB(), MB()
     r = MB()
-    WX = 4.70 if HOUSE_D else 4.50                     # línea del tabique dormitorio / distribuidor
+    WX = 4.70 if (HOUSE_D and P1V == "B") else 4.50    # línea del tabique dormitorio / distribuidor
     r.box(WX + 0.05, HOLE1[1], S1_Y[0] - 0.09, S1_Y[0] - 0.07, z, z + 1.0, M['vidrio'])        # barandilla hueco escalera PB
     r.box(WX + 0.05, HOLE1[1], S1_Y[0] - 0.10, S1_Y[0] - 0.06, z + 1.0, z + 1.04, M['metal'])
     r.build("P1 Barandilla de vidrio", C_P1)
@@ -831,7 +877,7 @@ def planta_primera():
         hx = p1 - 0.08 if p0 < 6.0 else p0 + 0.05
         d.box(hx, hx + 0.03, 1.19, 1.22, z + 0.85, z + 1.15, M['metal'])
     d.box(6.66, 6.70, Y_S_IN, 1.15, z, z + 1.70, M['puerta_int'])
-    if VAR == "A":
+    if P1V == "A":
         t.box(5.30, 5.40, Y_S_IN, 2.48, z, zt, W)                                   # fondo del armario
         t.box(4.47, 5.40, 2.38, 2.48, z, zt, W)
         wall(t, (4.50, 2.48), (4.50, 3.42), -0.05, 0.05, z, zt, [(0.08, 0.89, z, z + 2.03)], W)
@@ -929,6 +975,11 @@ def bajo_cubierta_d():
     zr = lambda x, y: z_under(x) + 0.02
     shell("BC", C_BC)
     slab("BC", C_BC, [(5.35, S2_XB, D_HOLE_Y, 9), (S2_XB, X_IN + 0.02, D_REAR_Y, 9)], 5.35, M['parquet'], "BC Forjado y suelo")
+    if ASYM:   # ventanal en la fachada alta, con barandilla de vidrio
+        wf, wg = MB(), MB()
+        glazing(wf, wg, BC_W0, BC_W1, BC_WZ[0], BC_WZ[1], panes=3, sill=True)
+        glass_rail(wf, wg, BC_W0, BC_W1, BC_WZ[0])
+        wf.build("BC Ventanal de fachada", C_BC); wg.build("BC Vidrios del ventanal", C_BC)
     t, d, f, b = MB(), MB(), MB(), MB()
     wall(t, (3.05, Y_S_IN), (3.05, Y_N_IN), -0.05, 0.05, z, zr, [(0.20, 1.00, z, z + 2.0)], W)       # dormitorio delantero
     wall(t, (3.10, 1.765), (4.42, 1.765), -0.045, 0.045, z, zr, [(0.02, 0.68, z, z + 2.0)], W)      # baño (puerta 3.12-3.78)
@@ -970,9 +1021,9 @@ def bajo_cubierta_d():
     area_light("BC Luz dormitorio trasero", C_BC, (5.3, 3.0, z_under(5.3) - 0.05), 1.4, 1.0, 80)
     area_light("BC Luz baño", C_BC, (3.7, 2.9, z_under(3.7) - 0.05), 0.8, 0.8, 35)
     area_light("BC Luz pasillo", C_BC, (4.2, 1.0, z_under(4.2) - 0.05), 0.8, 0.8, 35)
-    label("BC", "Dormitorio\n(casetón)", 1.40, 1.20, 0.14)
+    label("BC", "Dormitorio" if ASYM else "Dormitorio\n(casetón)", 1.40, 1.20, 0.14)
     label("BC", "Baño", 3.55, 2.85, 0.12)
-    label("BC", "Dormitorio\n(casetón trasero)", 5.85, 2.80, 0.09)
+    label("BC", "Dormitorio\ntrasero" if ASYM else "Dormitorio\n(casetón trasero)", 5.85, 2.80, 0.09)
     label("BC", "Pasillo", 4.2, 0.95, 0.12)
     label("BC", "Hueco", 6.0, 1.48, 0.10)
 
@@ -1116,13 +1167,13 @@ def cubierta():
     rule = lambda n: M['teja'] if n.z > 0.3 else (M['madera_techo'] if n.z < -0.3 else M['canto'])
     Y0, Y1 = -0.10, Y_N_OUT + 0.10
     front = MB()
-    front.xz_prism([(-0.80, z_under(-0.80)), (RIDGE_X, z_under(RIDGE_X)), (RIDGE_X, z_top(RIDGE_X)), (-0.80, z_top(-0.80))], Y0, Y1, rule)
+    front.xz_prism([(EAVE_F, z_under(EAVE_F)), (RIDGE_X, z_under(RIDGE_X)), (RIDGE_X, z_top(RIDGE_X)), (EAVE_F, z_top(EAVE_F))], Y0, Y1, rule)
     fo = front.build("Cubierta faldón delantero", C_ROOF, first=[M['madera_techo']])
-    # hueco del casetón (por dentro)
-    cut = MB()
-    yi0, yi1 = DY0 + 0.12, DY1 - 0.12
-    cut.yz_prism([(yi0, 4.0), (yi1, 4.0), (yi1, zd_under(yi1)), (DYC, zd_under(DYC)), (yi0, zd_under(yi0))], -1.5, 2.6, M['madera_ext'])
-    boolean_cut(fo, cut)
+    if not ASYM:   # hueco del casetón (por dentro)
+        cut = MB()
+        yi0, yi1 = DY0 + 0.12, DY1 - 0.12
+        cut.yz_prism([(yi0, 4.0), (yi1, 4.0), (yi1, zd_under(yi1)), (DYC, zd_under(DYC)), (yi0, zd_under(yi0))], -1.5, 2.6, M['madera_ext'])
+        boolean_cut(fo, cut)
 
     rear = MB(); vx0, vx1, vy0, vy1 = VELUX
     def piece(xa, xb, ya, yb):
@@ -1132,9 +1183,10 @@ def cubierta():
     else:
         piece(RIDGE_X, vx0, Y0, Y1); piece(vx1, 7.86, Y0, Y1)
         piece(vx0, vx1, Y0, vy0); piece(vx0, vx1, vy1, Y1)
-    rear.xz_prism([(3.36, z_top(3.36) - 0.01), (3.66, z_top(3.66) - 0.01), (3.66, z_top(3.66) + 0.03), (RIDGE_X, Z_RIDGE + 0.08), (3.36, z_top(3.36) + 0.03)], Y0, Y1, M['teja'])
+    ra, rb = RIDGE_X - 0.15, RIDGE_X + 0.15
+    rear.xz_prism([(ra, z_top(ra) - 0.01), (rb, z_top(rb) - 0.01), (rb, z_top(rb) + 0.03), (RIDGE_X, Z_RIDGE + 0.08), (ra, z_top(ra) + 0.03)], Y0, Y1, M['teja'])
     ro = rear.build("Cubierta faldón trasero", C_ROOF, first=[M['madera_techo']])
-    if HOUSE_D:
+    if HOUSE_D and not ASYM:   # con el tejado asimétrico el casetón trasero quedaría por debajo de la cubierta
         cut = MB(); a0, a1 = RDY0 + 0.10, RDY1 - 0.10
         cut.yz_prism([(a0, 4.0), (a1, 4.0), (a1, rz_under(a1)), (RYC, rz_under(RYC)), (a0, rz_under(a0))], 3.6, RXF - 0.12, M['madera_ext'])
         boolean_cut(ro, cut)
@@ -1143,16 +1195,17 @@ def cubierta():
     # canecillos de madera bajo el alero
     a = MB()
     y = 0.15
+    e = EAVE_F
     while y < Y_N_OUT:
-        if not (DY0 - 0.1 < y < DY1 + 0.1):
-            a.xz_prism([(-0.78, z_under(-0.78) - 0.14), (0.0, z_under(0.0) - 0.14), (0.0, z_under(0.0)), (-0.78, z_under(-0.78))], y - 0.05, y + 0.05, M['madera_ext'])
+        if ASYM or not (DY0 - 0.1 < y < DY1 + 0.1):
+            a.xz_prism([(e + 0.02, z_under(e + 0.02) - 0.14), (0.0, z_under(0.0) - 0.14), (0.0, z_under(0.0)), (e + 0.02, z_under(e + 0.02))], y - 0.05, y + 0.05, M['madera_ext'])
         y += 0.55
-    ze = z_top(-0.80)
-    a.box(-0.84, -0.80, Y0, DY0 - 0.02, ze - 0.36, ze + 0.02, M['madera_ext'])
-    a.box(-0.84, -0.80, DY1 + 0.02, Y1, ze - 0.36, ze + 0.02, M['madera_ext'])
-    a.box(-0.97, -0.84, Y0, DY0 - 0.02, ze - 0.32, ze - 0.18, M['marco'])                 # canalón
-    a.box(-0.97, -0.84, DY1 + 0.02, Y1, ze - 0.32, ze - 0.18, M['marco'])
-    a.box(-0.92, -0.04, 0.05, 0.13, ze - 0.38, ze - 0.30, M['marco']); a.box(-0.12, -0.04, 0.05, 0.13, 0.0, ze - 0.30, M['marco'])
+    ze = z_top(e)
+    tramos = [(Y0, Y1)] if ASYM else [(Y0, DY0 - 0.02), (DY1 + 0.02, Y1)]   # sin casetón el alero es corrido
+    for (ya, yb) in tramos:
+        a.box(e - 0.04, e, ya, yb, ze - 0.36, ze + 0.02, M['madera_ext'])
+        a.box(e - 0.17, e - 0.04, ya, yb, ze - 0.32, ze - 0.18, M['marco'])                 # canalón
+    a.box(e - 0.12, -0.04, 0.05, 0.13, ze - 0.38, ze - 0.30, M['marco']); a.box(-0.12, -0.04, 0.05, 0.13, 0.0, ze - 0.30, M['marco'])
     a.build("Alero de madera y canalón", C_ROOF)
 
     # ---- casetón
@@ -1188,7 +1241,8 @@ def cubierta():
     k.sz_prism([(sw0, zl + 0.12), (sw0 + 0.06, zl + 0.12), (sw0 + 0.06, zd_under(F(sw0)[1])), (sw0, zd_under(F(sw0)[1]))], 0.05, 0.12, M['marco'])
     k.sz_prism([(sw1 - 0.06, zl + 0.12), (sw1, zl + 0.12), (sw1, zd_under(F(sw1)[1])), (sw1 - 0.06, zd_under(F(sw1)[1]))], 0.05, 0.12, M['marco'])
     k.sz_prism([(sc - 0.03, zl + 0.12), (sc + 0.03, zl + 0.12), (sc + 0.03, zd_under(DYC)), (sc - 0.03, zd_under(DYC))], 0.05, 0.12, M['marco'])
-    k.build("Casetón", C_ROOF); kg.build("Casetón vidrios", C_ROOF)
+    if not ASYM:   # con el tejado asimétrico la fachada sube hasta arriba y lleva un ventanal en su lugar
+        k.build("Casetón", C_ROOF); kg.build("Casetón vidrios", C_ROOF)
 
     # velux del faldón trasero
     v, vg = MB(), MB()
@@ -1269,7 +1323,7 @@ def setup_render():
     camera("Cámara aérea", (-10.5, -9.5, 14.0), (3.6, 2.3, 4.0), lens=32)
     camera("Cámara interior salón", (0.70, 1.15, 1.60), (6.4, 3.9, 1.0), lens=15)
     camera("Cámara interior escalera", (3.0, 1.9, 1.25), (6.3, 4.0, 2.0), lens=18)
-    camera("Cámara interior planta primera", (0.75, 0.75 if VAR == "B" else 2.0, LV["P1"] + 1.55), (5.4, 3.6, LV["P1"] + 0.9), lens=15)
+    camera("Cámara interior planta primera", (0.75, 0.75 if P1V == "B" else 2.0, LV["P1"] + 1.55), (5.4, 3.6, LV["P1"] + 0.9), lens=15)
     if NEW_ATTIC:
         camera("Cámara interior casetón", (2.95, 1.95, LV["BC"] + 1.55), (0.1, 3.1, LV["BC"] + 1.2), lens=16)
         camera("Cámara interior dormitorio 2", (6.45, 2.25, LV["BC"] + 1.45), (3.9, 3.9, LV["BC"] + 0.95), lens=16)

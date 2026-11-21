@@ -103,8 +103,12 @@ body { background: var(--bg); color: var(--ink); font-family: var(--font); overf
 
 <div class="top">
   <div class="cartela panel">
-    <h1>Casa D · diseño final</h1>
+    <h1 id="titulo">Casa D · con galería</h1>
     <div class="lectura" id="lectura">Maqueta · gira con el dedo o el ratón</div>
+  </div>
+  <div class="modos panel" role="tablist" aria-label="Versión de la casa">
+    <button class="btn" role="tab" id="casa-con-galeria" aria-pressed="true" aria-selected="true">Con galería</button>
+    <button class="btn" role="tab" id="casa-sin-terraza" aria-pressed="false" aria-selected="false">Sin terraza</button>
   </div>
   <div class="modos panel" role="group" aria-label="Modo de vista">
     <button class="btn" id="m-maqueta" aria-pressed="true">Maqueta</button>
@@ -293,36 +297,66 @@ async function fetchModel(url) {
   dv.setUint32(20 + jl, bl, true); dv.setUint32(24 + jl, 0x004E4942, true); glb.set(bin, 28 + jl);
   return new Promise((ok, ko) => new GLTFLoader().parse(glb.buffer, '', ok, ko));
 }
-fetchModel('casa-d.json').then(gltf => {
-  const root = gltf.scene, cache = {};
-  root.traverse(o => {
+// ---------------------------------------------------------------- las dos casas (pestañas)
+const CASAS = {
+  'con-galeria': { archivo: 'casa-d.json', titulo: 'Casa D · con galería' },
+  'sin-terraza': { archivo: 'casa-d-sin-terraza.json', titulo: 'Casa D · sin terraza' },
+};
+const modelos = {}, texCache = {};
+let casa = null, root = null;
+function prepare(gltf) {
+  const m = { root: gltf.scene, meshes: [], colliders: [] };
+  m.root.traverse(o => {
     if (!o.isMesh) return;
     let tag = {};
     for (let p = o; p; p = p.parent) tag = { ...(p.userData || {}), ...tag };   // el nodo más cercano manda
-    o.userData.tag = tag; meshes.push(o);
+    o.userData.tag = tag; m.meshes.push(o);
     const mats = Array.isArray(o.material) ? o.material : [o.material];
     let glass = false;
-    for (const m of mats) {
-      if (TEX[m.name]) { m.map = cache[m.name] ||= TEX[m.name](); m.needsUpdate = true; }
-      if (m.transparent || m.opacity < 1) { m.depthWrite = false; glass = true; }
+    for (const mt of mats) {
+      if (TEX[mt.name]) { mt.map = texCache[mt.name] ||= TEX[mt.name](); mt.needsUpdate = true; }
+      if (mt.transparent || mt.opacity < 1) { mt.depthWrite = false; glass = true; }
     }
     o.castShadow = !glass && !tag.rotulo; o.receiveShadow = true;
-    if (!tag.rotulo && !tag.persona) colliders.push(o);
+    if (!tag.rotulo && !tag.persona) m.colliders.push(o);
   });
-  scene.add(root);
-  ready = true; carga.hidden = true;
-  setMode('maqueta');
-}).catch(err => {
-  cargaTxt.textContent = `No se ha podido cargar el modelo (${err?.message || err}). Recarga la página para intentarlo de nuevo.`;
-  console.error(err);
-});
+  return m;
+}
+async function loadHouse(key) {
+  if (!CASAS[key]) key = 'con-galeria';
+  if (key === casa) return;
+  for (const k of Object.keys(CASAS)) {
+    const b = document.getElementById(`casa-${k}`);
+    b.setAttribute('aria-pressed', String(k === key)); b.setAttribute('aria-selected', String(k === key));
+  }
+  if (!modelos[key]) {
+    carga.hidden = false; cargaBar.style.width = '0%'; cargaTxt.textContent = 'Cargando la casa…';
+    try { modelos[key] = prepare(await fetchModel(CASAS[key].archivo)); }
+    catch (err) {
+      cargaTxt.textContent = `No se ha podido cargar el modelo (${err?.message || err}). Recarga la página para intentarlo de nuevo.`;
+      console.error(err); return;
+    }
+  }
+  if (root) scene.remove(root);
+  const m = modelos[key]; root = m.root; scene.add(root);
+  colliders.length = 0; colliders.push(...m.colliders); meshes.length = 0; meshes.push(...m.meshes);
+  casa = key; document.getElementById('titulo').textContent = CASAS[key].titulo;
+  if (location.hash.slice(1) !== key) try { location.hash = key; } catch (e) { /* el marco puede no dejarlo */ }
+  carga.hidden = true;
+  if (!ready) { ready = true; setMode('maqueta'); }
+  else if (mode === 'paseo') { applyLayers(true); placeChips(); snapGround(true); }
+  else applyLayers(false);
+}
+for (const k of Object.keys(CASAS)) document.getElementById(`casa-${k}`).onclick = () => loadHouse(k);
+addEventListener('hashchange', () => loadHouse(location.hash.slice(1)));
+loadHouse(location.hash.slice(1));
 
 // ---------------------------------------------------------------- maqueta (vista orbital)
 const orbit = new OrbitControls(camera, renderer.domElement);
 orbit.target.copy(B(3.9, 2.33, 3.6));
 orbit.minDistance = 3; orbit.maxDistance = 32; orbit.maxPolarAngle = Math.PI * 0.495;
 orbit.enableDamping = true;
-const capaOn = { Cubierta: true, BC: true, P1: true, Entorno: true, persona: true, rotulo: true };
+const capaOn = { Cubierta: true, BC: true, P1: true, Entorno: true, persona: false, rotulo: true };   // personas ocultas al abrir
 function applyLayers(paseo) {
   for (const o of meshes) {
     const t = o.userData.tag;
@@ -483,15 +517,20 @@ function setMode(m, lugar) {
   } else {
     orbit.enabled = false; scene.remove(camera); rig.add(camera);
     camera.position.set(0, EYE, 0); camera.fov = 70; camera.updateProjectionMatrix();
-    for (const l of LUGARES) {
-      const b = document.createElement('button'); b.className = 'chip'; b.id = `lugar-${l.id}`;
-      b.innerHTML = `${l.txt}<span class="nivel">${l.pos[2] === 0 ? '+0,00' : l.pos[2] === 2.8 ? '+2,80' : '+5,60'}</span>`;
-      b.onclick = () => placeAt(l); fila.append(b);
-    }
+    placeChips();
     ayuda.textContent = touch ? 'Toca el suelo para ir allí · desliza el dedo para mirar alrededor'
       : 'Haz clic en el suelo para ir allí · arrastra para mirar alrededor · también puedes usar las flechas';
     joyEl.hidden = true; applyLayers(true);
     placeAt(lugar || LUGARES[0]);
+  }
+}
+function placeChips() {
+  fila.replaceChildren();
+  for (const l of LUGARES) {
+    const b = document.createElement('button'); b.className = 'chip'; b.id = `lugar-${l.id}`;
+    const txt = l.id === 'galeria' && casa === 'sin-terraza' ? 'Cristalera' : l.txt;   // sin terraza no hay galería
+    b.innerHTML = `${txt}<span class="nivel">${l.pos[2] === 0 ? '+0,00' : l.pos[2] === 2.8 ? '+2,80' : '+5,60'}</span>`;
+    b.onclick = () => placeAt(l); fila.append(b);
   }
 }
 window.visita = { irA: (x, y, z, dx, dy) => placeAt({ pos: [x, y, z], look: [dx, dy] }), posicion: () => rig.position.clone() };
