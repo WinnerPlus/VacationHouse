@@ -39,7 +39,10 @@ EAVE_F = -0.80                              # vuelo del alero a la calle
 if ASYM:
     # Según el croquis sobre la sección: la fachada sube hasta ~7,97, faldón largo y tendido (~8,5°) hasta la
     # cumbrera en x≈5,74 a ~8,81, y faldón corto y empinado hasta ~7,0 sobre el muro del fondo.
-    RIDGE_X, Z_RIDGE, SLOPE_F, SLOPE_R, EAVE_F = 5.74, 8.81, 0.15, 1.03, -0.40
+    # Ajuste de Pablo (2026-11-21): algo más de pendiente delante (≈12,4°) para que quepa el casetón, y la
+    # cumbrera con su remate en 9,00 m, que es la altura máxima permitida de la casa.
+    RIDGE_X, Z_RIDGE, SLOPE_F, SLOPE_R, EAVE_F = 5.74, 8.92, 0.22, 1.07, -0.40
+Z_MAX = 9.00                                # cota más alta de la casa (remate de cumbrera)
 def z_top(x): return Z_RIDGE - (SLOPE_F * (RIDGE_X - x) if x < RIDGE_X else SLOPE_R * (x - RIDGE_X))
 def z_under(x): return z_top(x) - ROOF_T
 
@@ -74,10 +77,10 @@ BC_HOLE_Y = 1.89                               # hueco en BC: x 5.35..7.60, y 0.
 # Casetón (buhardilla) delantero
 DY0, DY1 = (1.85, 4.20) if NEW_ATTIC else (1.05, 3.80) if HOUSE_D else (1.10, 3.68)   # en C se centra en el dormitorio 1
 DYC = (DY0 + DY1) / 2
-DR, DS, DT = 8.45, 0.54, 0.20                  # cumbrera, pendiente y grosor de su cubierta
+DR, DS, DT = (8.60, 0.50, 0.20) if ASYM else (8.45, 0.54, 0.20)   # cumbrera, pendiente y grosor de su cubierta
 def zd_top(y): return DR - DS * abs(y - DYC)
 def zd_under(y): return zd_top(y) - DT
-def valley_x(y): return RIDGE_X - (Z_RIDGE - zd_top(y)) / SLOPE
+def valley_x(y): return RIDGE_X - (Z_RIDGE - zd_top(y)) / SLOPE_F
 
 # ---------------------------------------------------------------- materiales
 def srgb(h):
@@ -646,10 +649,7 @@ def shell(level, coll):
     mb = MB()
     fr = ext_rule(M['piedra_fachada'], M['pared_int'], (-FN.x, -FN.y))
     if level == "BC":
-        if ASYM:   # fachada alta con ventanal en vez de casetón
-            wall(mb, FA, FD, 0.0, FT, z0, ztop, [(BC_W0, BC_W1, BC_WZ[0], BC_WZ[1])], fr)
-        else:
-            wall(mb, FA, FD, 0.0, FT, z0, ztop, [(S_D0, S_D1, z0, None)], fr)
+        wall(mb, FA, FD, 0.0, FT, z0, ztop, [(S_D0, S_D1, z0, None)], fr)   # el frente del casetón va aparte
     else:
         key = "PB" if level == "PB" else "P1" + P1V
         wall(mb, FA, FD, 0.0, FT, z0, ztop, FACADE_OPEN[key], fr)
@@ -975,11 +975,6 @@ def bajo_cubierta_d():
     zr = lambda x, y: z_under(x) + 0.02
     shell("BC", C_BC)
     slab("BC", C_BC, [(5.35, S2_XB, D_HOLE_Y, 9), (S2_XB, X_IN + 0.02, D_REAR_Y, 9)], 5.35, M['parquet'], "BC Forjado y suelo")
-    if ASYM:   # ventanal en la fachada alta, con barandilla de vidrio
-        wf, wg = MB(), MB()
-        glazing(wf, wg, BC_W0, BC_W1, BC_WZ[0], BC_WZ[1], panes=3, sill=True)
-        glass_rail(wf, wg, BC_W0, BC_W1, BC_WZ[0])
-        wf.build("BC Ventanal de fachada", C_BC); wg.build("BC Vidrios del ventanal", C_BC)
     t, d, f, b = MB(), MB(), MB(), MB()
     wall(t, (3.05, Y_S_IN), (3.05, Y_N_IN), -0.05, 0.05, z, zr, [(0.20, 1.00, z, z + 2.0)], W)       # dormitorio delantero
     wall(t, (3.10, 1.765), (4.42, 1.765), -0.045, 0.045, z, zr, [(0.02, 0.68, z, z + 2.0)], W)      # baño (puerta 3.12-3.78)
@@ -1021,9 +1016,9 @@ def bajo_cubierta_d():
     area_light("BC Luz dormitorio trasero", C_BC, (5.3, 3.0, z_under(5.3) - 0.05), 1.4, 1.0, 80)
     area_light("BC Luz baño", C_BC, (3.7, 2.9, z_under(3.7) - 0.05), 0.8, 0.8, 35)
     area_light("BC Luz pasillo", C_BC, (4.2, 1.0, z_under(4.2) - 0.05), 0.8, 0.8, 35)
-    label("BC", "Dormitorio" if ASYM else "Dormitorio\n(casetón)", 1.40, 1.20, 0.14)
+    label("BC", "Dormitorio\n(casetón)", 1.40, 1.20, 0.14)
     label("BC", "Baño", 3.55, 2.85, 0.12)
-    label("BC", "Dormitorio\ntrasero" if ASYM else "Dormitorio\n(casetón trasero)", 5.85, 2.80, 0.09)
+    label("BC", "Dormitorio\n(velux)" if ASYM else "Dormitorio\n(casetón trasero)", 5.85, 2.80, 0.09)
     label("BC", "Pasillo", 4.2, 0.95, 0.12)
     label("BC", "Hueco", 6.0, 1.48, 0.10)
 
@@ -1128,7 +1123,9 @@ def bajo_cubierta_c():
     label("BC", "Hueco de escalera", 6.0, 1.56, 0.10)
 
 # ================================================================= CUBIERTA, CASETÓN, VELUX Y SOLATUBES
-VELUX = (5.82, 6.88, 2.80, 3.60)
+# velux del faldón trasero (x en planta; en el tejado asimétrico el faldón es empinado, así que su proyección es más corta)
+VELUX = (5.90, 6.70, 2.90, 3.66) if ASYM else (5.82, 6.88, 2.80, 3.60)
+USE_VELUX = ASYM or not HOUSE_D              # la casa D con galería lleva casetón trasero en su lugar
 SOLATUBES = [(6.30, 1.14), (1.95, 0.80)] if NEW_ATTIC else [(4.70, 0.96), (3.75, 2.96)] if HOUSE_D else [(6.30, 1.14), (3.78, 2.98)]
 # Casetón trasero (D): sustituye al velux del dormitorio del fondo
 RDY0, RDY1 = 2.86, 3.86
@@ -1169,22 +1166,22 @@ def cubierta():
     front = MB()
     front.xz_prism([(EAVE_F, z_under(EAVE_F)), (RIDGE_X, z_under(RIDGE_X)), (RIDGE_X, z_top(RIDGE_X)), (EAVE_F, z_top(EAVE_F))], Y0, Y1, rule)
     fo = front.build("Cubierta faldón delantero", C_ROOF, first=[M['madera_techo']])
-    if not ASYM:   # hueco del casetón (por dentro)
-        cut = MB()
-        yi0, yi1 = DY0 + 0.12, DY1 - 0.12
-        cut.yz_prism([(yi0, 4.0), (yi1, 4.0), (yi1, zd_under(yi1)), (DYC, zd_under(DYC)), (yi0, zd_under(yi0))], -1.5, 2.6, M['madera_ext'])
-        boolean_cut(fo, cut)
+    # hueco del casetón (por dentro)
+    cut = MB()
+    yi0, yi1 = DY0 + 0.12, DY1 - 0.12
+    cut.yz_prism([(yi0, 4.0), (yi1, 4.0), (yi1, zd_under(yi1)), (DYC, zd_under(DYC)), (yi0, zd_under(yi0))], -1.5, valley_x(DYC) + 0.1, M['madera_ext'])
+    boolean_cut(fo, cut)
 
     rear = MB(); vx0, vx1, vy0, vy1 = VELUX
     def piece(xa, xb, ya, yb):
         rear.xz_prism([(xa, z_under(xa)), (xb, z_under(xb)), (xb, z_top(xb)), (xa, z_top(xa))], ya, yb, rule)
-    if HOUSE_D:
+    if not USE_VELUX:
         piece(RIDGE_X, 7.86, Y0, Y1)
     else:
         piece(RIDGE_X, vx0, Y0, Y1); piece(vx1, 7.86, Y0, Y1)
         piece(vx0, vx1, Y0, vy0); piece(vx0, vx1, vy1, Y1)
     ra, rb = RIDGE_X - 0.15, RIDGE_X + 0.15
-    rear.xz_prism([(ra, z_top(ra) - 0.01), (rb, z_top(rb) - 0.01), (rb, z_top(rb) + 0.03), (RIDGE_X, Z_RIDGE + 0.08), (ra, z_top(ra) + 0.03)], Y0, Y1, M['teja'])
+    rear.xz_prism([(ra, z_top(ra) - 0.01), (rb, z_top(rb) - 0.01), (rb, z_top(rb) + 0.03), (RIDGE_X, Z_MAX), (ra, z_top(ra) + 0.03)], Y0, Y1, M['teja'])   # remate a 9,00
     ro = rear.build("Cubierta faldón trasero", C_ROOF, first=[M['madera_techo']])
     if HOUSE_D and not ASYM:   # con el tejado asimétrico el casetón trasero quedaría por debajo de la cubierta
         cut = MB(); a0, a1 = RDY0 + 0.10, RDY1 - 0.10
@@ -1197,11 +1194,11 @@ def cubierta():
     y = 0.15
     e = EAVE_F
     while y < Y_N_OUT:
-        if ASYM or not (DY0 - 0.1 < y < DY1 + 0.1):
+        if not (DY0 - 0.1 < y < DY1 + 0.1):
             a.xz_prism([(e + 0.02, z_under(e + 0.02) - 0.14), (0.0, z_under(0.0) - 0.14), (0.0, z_under(0.0)), (e + 0.02, z_under(e + 0.02))], y - 0.05, y + 0.05, M['madera_ext'])
         y += 0.55
     ze = z_top(e)
-    tramos = [(Y0, Y1)] if ASYM else [(Y0, DY0 - 0.02), (DY1 + 0.02, Y1)]   # sin casetón el alero es corrido
+    tramos = [(Y0, DY0 - 0.02), (DY1 + 0.02, Y1)]   # el alero se corta en el casetón
     for (ya, yb) in tramos:
         a.box(e - 0.04, e, ya, yb, ze - 0.36, ze + 0.02, M['madera_ext'])
         a.box(e - 0.17, e - 0.04, ya, yb, ze - 0.32, ze - 0.18, M['marco'])                 # canalón
@@ -1241,14 +1238,13 @@ def cubierta():
     k.sz_prism([(sw0, zl + 0.12), (sw0 + 0.06, zl + 0.12), (sw0 + 0.06, zd_under(F(sw0)[1])), (sw0, zd_under(F(sw0)[1]))], 0.05, 0.12, M['marco'])
     k.sz_prism([(sw1 - 0.06, zl + 0.12), (sw1, zl + 0.12), (sw1, zd_under(F(sw1)[1])), (sw1 - 0.06, zd_under(F(sw1)[1]))], 0.05, 0.12, M['marco'])
     k.sz_prism([(sc - 0.03, zl + 0.12), (sc + 0.03, zl + 0.12), (sc + 0.03, zd_under(DYC)), (sc - 0.03, zd_under(DYC))], 0.05, 0.12, M['marco'])
-    if not ASYM:   # con el tejado asimétrico la fachada sube hasta arriba y lleva un ventanal en su lugar
-        k.build("Casetón", C_ROOF); kg.build("Casetón vidrios", C_ROOF)
+    k.build("Casetón", C_ROOF); kg.build("Casetón vidrios", C_ROOF)
 
     # velux del faldón trasero
     v, vg = MB(), MB()
     def slope(xa, xb, d0, d1, ya, yb, m, tgt):
         tgt.xz_prism([(xa, z_top(xa) + d0), (xb, z_top(xb) + d0), (xb, z_top(xb) + d1), (xa, z_top(xa) + d1)], ya, yb, m)
-    if not HOUSE_D:
+    if USE_VELUX:
         slope(vx0 - 0.06, vx1 + 0.06, -0.02, 0.11, vy0 - 0.06, vy0, M['marco'], v)
         slope(vx0 - 0.06, vx1 + 0.06, -0.02, 0.11, vy1, vy1 + 0.06, M['marco'], v)
         slope(vx0 - 0.06, vx0, -0.02, 0.11, vy0, vy1, M['marco'], v)
@@ -1256,8 +1252,9 @@ def cubierta():
         slope(vx0, vx1, 0.07, 0.08, vy0, vy1, M['vidrio'], vg)
     # solatubes: cúpula en cubierta, tubo y difusor en el techo
     for (sx, sy) in SOLATUBES:
-        v.cyl(sx, sy, 0.17, z_under(sx) - 0.02, z_top(sx) + 0.10, M['metal'], 24)
-        vg.cyl(sx, sy, 0.21, z_top(sx) + 0.10, z_top(sx) + 0.24, M['vidrio'], 24)
+        top = min(z_top(sx) + 0.18, Z_MAX - 0.01)          # nada puede pasar de la cota máxima
+        v.cyl(sx, sy, 0.17, z_under(sx) - 0.02, top - 0.10, M['metal'], 24)
+        vg.cyl(sx, sy, 0.21, top - 0.10, top, M['vidrio'], 24)
         v.cyl(sx, sy, 0.19, z_under(sx) - 0.05, z_under(sx) - 0.02, M['difusor'], 24)
     for cx in (7.22, 7.37, 7.52):
         v.cyl(cx, 4.27, 0.065, z_under(cx) - 0.05, 8.05, M['metal'], 16)

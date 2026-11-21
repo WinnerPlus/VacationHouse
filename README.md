@@ -26,7 +26,17 @@ Se abre en el navegador del móvil o del ordenador, sin instalar nada:
 
 En las casas D la cocina es azul marino, y hay una persona de referencia por planta (en la visita aparecen ocultas; se muestran con el botón «Personas» de la maqueta).
 
-El tejado asimétrico de la versión sin terraza sale de un croquis sobre la sección: la fachada sube hasta unos 7,97 m, un faldón largo y tendido (unos 8,5°) llega hasta la cumbrera en x ≈ 5,74 m a 8,81 m, y un faldón corto y empinado baja hasta unos 7,0 m sobre el muro del fondo. Así se gana altura en toda la bajocubierta. Los casetones ya no hacen falta: en su lugar hay un ventanal en la fachada.
+El tejado asimétrico de la versión sin terraza sale de un croquis sobre la sección, con un ajuste posterior:
+
+- El faldón de la calle sube desde unos 7,66 m en la fachada con una pendiente de unos 12,4° hasta la cumbrera, en x ≈ 5,74 m.
+- El faldón trasero, corto y empinado, baja hasta unos 7,0 m sobre el muro del fondo.
+- Mantiene el casetón delantero y lleva un velux sobre la cama del dormitorio pequeño.
+
+**La cota más alta de la casa nunca pasa de 9,00 m** (remate de la cumbrera). Se comprueba con:
+
+```
+blender -b "Casa D - sin terraza.blend" -P casa_altura_maxima.py
+```
 
 Las vistas renderizadas de cada versión están en `renders/`, `renders_A/`, `renders_B/`, `renders_C/`, `renders_D/` y `renders_D_sin_terraza/`.
 
